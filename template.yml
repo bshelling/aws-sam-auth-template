@@ -1,0 +1,259 @@
+Transform: AWS::Serverless-2016-10-31
+Description: "AWS SAM Typescript Bootstrap Template"
+
+Globals:
+  Function:
+    Runtime: nodejs16.x
+    Timeout: 600
+    CodeUri: src/
+  HttpApi:
+    StageVariables: !Ref EnvStage
+
+Parameters:
+  EnvStage:
+    Type: String
+    Default: dev
+  TableName:
+    Type: String
+    Default: ApplicationTable
+  BucketName:
+    Type: String
+    Default: applicationbucket
+
+# Application resources
+Resources:
+  # Role given permission allowed action 
+  S3DynamodbRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: "Role to ReadWriteDelete Objects in a s3 and dynamodb"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: AllowReadandWriteS3Dynamo
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                - 's3:*'
+                - 'dynamodb:*'
+                Resource: '*'
+
+  # Application API
+  ApplicationApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref EnvStage
+      Name: ApplicationAuthApi
+      Cors:
+        AllowHeaders: "'*'"
+        AllowMethods: "'OPTIONS,GET,POST'"
+        AllowOrigin: "'*'"
+
+ 
+  # Application Table
+  AppDynamoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: "RecordId"
+          AttributeType: "S"
+
+        - AttributeName: "Name"
+          AttributeType: "S"
+          
+      KeySchema:
+        - AttributeName: "RecordId"
+          KeyType: "HASH"
+        - AttributeName: "Name"
+          KeyType: "RANGE"
+
+      TableClass: STANDARD
+      TableName: !Ref TableName
+      Tags:
+        - Key: "Name" 
+          Value: "App_Dynamodb"
+
+  # Application S3 Bucket
+  ApplicationS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+ # Functions
+
+ # Root Function
+  # path: /
+  RootFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Architectures: 
+        - x86_64
+      Handler: root/index.handler
+      PackageType: Zip
+      Role: !GetAtt S3DynamodbRole.Arn
+      Events:
+        ApiEventGet:
+          Type: Api
+          Properties:
+            Method: get
+            Path: /
+            RestApiId: !Ref ApplicationApi
+
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+
+  RegisterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Architectures: 
+        - x86_64
+      Handler: auth/register.handler
+      PackageType: Zip
+      Role: !GetAtt S3DynamodbRole.Arn
+      Events:
+        ApiEventGet:
+          Type: Api
+          Properties:
+            Method: post
+            Path: /register
+            RestApiId: !Ref ApplicationApi
+
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: "es2020"
+        
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Architectures: 
+        - x86_64
+      Handler: auth/login.handler
+      PackageType: Zip
+      Role: !GetAtt S3DynamodbRole.Arn
+      Events:
+        ApiEventGet:
+          Type: Api
+          Properties:
+            Method: post
+            Path: /login
+            RestApiId: !Ref ApplicationApi
+
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: "es2020"
+
+  ConfirmationEmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Environment:
+        Variables:
+          ACCESS_KEY_ID: 'accessKey'
+          ACCESS_KEY: 'accessKey'
+          TEST_EMAIL: 'test@example.com'
+      Architectures: 
+        - x86_64
+      Handler: email/confirmation.handler
+      PackageType: Zip
+      Role: !GetAtt S3DynamodbRole.Arn
+      Events:
+        ApiEventGet:
+          Type: Api
+          Properties:
+            Method: post
+            Path: /user-confirmation
+            RestApiId: !Ref ApplicationApi
+
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: "es2020"
+        SourceMap: true
+
+  NotificationEmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Environment:
+        Variables:
+          ACCESS_KEY_ID: 'accessKey'
+          ACCESS_KEY: 'accessKey'
+          TEST_EMAIL: 'test@example.com'
+
+      Architectures: 
+        - x86_64
+      Handler: email/admin-notification.handler
+      PackageType: Zip
+      Role: !GetAtt S3DynamodbRole.Arn
+      Events:
+        ApiEventGet:
+          Type: Api
+          Properties:
+            Method: post
+            Path: /admin-notification
+            RestApiId: !Ref ApplicationApi
+
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: "es2020"
+        SourceMap: true
+
+
+  ProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+
+      Architectures: 
+        - x86_64
+      Handler: profile/detail.handler
+      PackageType: Zip
+      Role: !GetAtt S3DynamodbRole.Arn
+      Events:
+        ApiEventGet:
+          Type: Api
+          Properties:
+            Method: get
+            Path: /profile
+            RestApiId: !Ref ApplicationApi
+
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+
+
+Outputs:
+  RoleArn:
+    Description: "Application Role Arn"
+    Value: !GetAtt S3DynamodbRole.Arn
+  ApiURL:
+    Description: "Application Url"
+    Value: !Sub 'https://${ApplicationApi}.execute-api.${AWS::Region}.amazonaws.com/${EnvStage}'
+  S3Path:
+    Description: "S3 Bucket Path"
+    Value: !Sub 'https://${ApplicationS3Bucket}.s3.amazonaws.com/${EnvStage}'
+    
